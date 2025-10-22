@@ -1,0 +1,180 @@
+{
+    "master": {
+        "tasks": [
+            {
+                "id": "1",
+                "title": "Reposition Minimap to bottom-left",
+                "description": "Move the existing ReactFlow Minimap component to the bottom-left corner of the screen",
+                "details": "Update the Minimap styling/positioning to place it in the bottom-left corner. Keep all other functionality the same as it currently is.",
+                "testStrategy": "",
+                "status": "done",
+                "dependencies": [],
+                "priority": "medium",
+                "subtasks": [],
+                "updatedAt": "2025-10-19T22:16:28.421Z"
+            },
+            {
+                "id": "2",
+                "title": "Implement Online counter in upper-left",
+                "description": "Create an online user counter in the upper-left corner that shows how many users are currently editing the document",
+                "details": "- Position in upper-left of screen\n- Display count of active users\n- Use Convex to track active users\n- Implement timeout mechanism to remove inactive users after period of inactivity\n- Use appropriate Lucide icon for the counter display",
+                "testStrategy": "",
+                "status": "done",
+                "dependencies": [],
+                "priority": "high",
+                "subtasks": [
+                    {
+                        "id": 1,
+                        "title": "Set up Convex real-time user tracking",
+                        "description": "Implement the Convex backend functionality to track active users in the document editing session",
+                        "dependencies": [],
+                        "details": "Create a Convex mutation to register a user when they start editing the document. Set up a Convex table to store active user information including user ID, timestamp of last activity, and document ID. Implement the query to fetch the current count of active users for a specific document.",
+                        "status": "done",
+                        "testStrategy": "Test the Convex functions with mock user data to ensure proper registration and counting of active users",
+                        "parentId": "undefined",
+                        "updatedAt": "2025-10-19T21:29:12.121Z"
+                    },
+                    {
+                        "id": 2,
+                        "title": "Implement user inactivity timeout mechanism",
+                        "description": "Create a system to automatically remove users from the active count after a period of inactivity",
+                        "dependencies": [
+                            1
+                        ],
+                        "details": "Implement a Convex function that runs periodically to check for inactive users. Define an appropriate inactivity threshold (e.g., 5 minutes). Create a client-side heartbeat mechanism that updates the user's last activity timestamp. Ensure the system properly removes users who have closed the document or become inactive.",
+                        "status": "done",
+                        "testStrategy": "Test with simulated inactive users to verify they are properly removed after the timeout period",
+                        "parentId": "undefined",
+                        "updatedAt": "2025-10-19T21:29:16.171Z"
+                    },
+                    {
+                        "id": 3,
+                        "title": "Create UI component for online user counter",
+                        "description": "Design and implement the visual component that will display the count of active users",
+                        "dependencies": [],
+                        "details": "Create a React component for the online user counter. Select and integrate an appropriate Lucide icon to represent online users. Style the component to be visually appealing and consistent with the application design. Ensure the component is responsive and works on different screen sizes.",
+                        "status": "done",
+                        "testStrategy": "Test the component rendering with different user counts and screen sizes",
+                        "parentId": "undefined",
+                        "updatedAt": "2025-10-19T21:32:11.894Z"
+                    },
+                    {
+                        "id": 4,
+                        "title": "Position counter in upper-left corner",
+                        "description": "Implement the positioning logic to place the counter in the upper-left corner of the screen",
+                        "dependencies": [
+                            3
+                        ],
+                        "details": "Add CSS styling to position the counter component in the upper-left corner of the screen. Ensure proper spacing and alignment with other UI elements. Handle potential overlapping issues with other components. Make sure the positioning is consistent across different browsers and devices.",
+                        "status": "done",
+                        "testStrategy": "Verify correct positioning across different browsers and screen sizes",
+                        "parentId": "undefined",
+                        "updatedAt": "2025-10-19T21:32:15.427Z"
+                    },
+                    {
+                        "id": 5,
+                        "title": "Connect real-time user data to the UI counter",
+                        "description": "Integrate the Convex backend with the UI component to display real-time user count",
+                        "dependencies": [
+                            1,
+                            2,
+                            3,
+                            4
+                        ],
+                        "details": "Use Convex's useQuery hook to subscribe to real-time updates of the active user count. Implement proper error handling for connection issues. Add loading states for when the count is being fetched. Ensure the counter updates immediately when users join or leave the document editing session.",
+                        "status": "done",
+                        "testStrategy": "Test the end-to-end functionality with multiple users joining and leaving the document to verify real-time updates",
+                        "parentId": "undefined",
+                        "updatedAt": "2025-10-19T21:32:18.665Z"
+                    }
+                ],
+                "updatedAt": "2025-10-19T21:32:18.665Z"
+            },
+            {
+                "id": "3",
+                "title": "Implement Tool selector with expandable tabs",
+                "description": "Create a tool selector using the expandable tabs component to switch between Select and Node tools",
+                "details": "- Implement expandable tabs component from components.json (code provided in PRD)\n- Add \"Select\" tool with Lucide mouse-pointer-2 icon\n- Add \"Node\" tool with Lucide squares-unite icon\n- Integrate with existing tool selection context\n- Position appropriately in the UI\n- Use framer-motion animations as specified\n- Install required dependencies: framer-motion, usehooks-ts",
+                "testStrategy": "",
+                "status": "done",
+                "dependencies": [],
+                "priority": "high",
+                "subtasks": [
+                    {
+                        "id": 1,
+                        "title": "Install and configure required dependencies",
+                        "description": "Install framer-motion and usehooks-ts packages and set up initial configuration for the project.",
+                        "dependencies": [],
+                        "details": "Run npm/yarn install for framer-motion and usehooks-ts. Configure any necessary imports in the main application file. Verify the packages are working correctly by testing a simple animation or hook.",
+                        "status": "done",
+                        "testStrategy": "Verify successful installation by checking package.json and node_modules. Test a simple animation to ensure framer-motion is working properly.",
+                        "updatedAt": "2025-10-19T22:12:31.646Z",
+                        "parentId": "undefined"
+                    },
+                    {
+                        "id": 2,
+                        "title": "Implement expandable tabs component from components.json",
+                        "description": "Create the expandable tabs component based on the specifications provided in components.json.",
+                        "dependencies": [
+                            1
+                        ],
+                        "details": "Extract the component code from components.json. Create a new component file for the expandable tabs. Implement the component with proper TypeScript typing. Ensure the component is reusable and follows the project's component structure.",
+                        "status": "done",
+                        "testStrategy": "Test the component in isolation to verify it expands/collapses correctly. Check that it renders properly with different content and configurations.",
+                        "parentId": "undefined",
+                        "updatedAt": "2025-10-19T22:13:17.589Z"
+                    },
+                    {
+                        "id": 3,
+                        "title": "Add Select and Node tool options with icons",
+                        "description": "Implement the Select tool with mouse-pointer-2 icon and Node tool with squares-unite icon from Lucide.",
+                        "dependencies": [
+                            2
+                        ],
+                        "details": "Import the required Lucide icons (mouse-pointer-2 and squares-unite). Create tool option components that include these icons. Implement the visual styling for both selected and unselected states. Ensure proper accessibility attributes are added.",
+                        "status": "done",
+                        "testStrategy": "Verify icons render correctly. Test hover and focus states. Ensure proper ARIA attributes for accessibility.",
+                        "parentId": "undefined",
+                        "updatedAt": "2025-10-19T22:14:03.581Z"
+                    },
+                    {
+                        "id": 4,
+                        "title": "Integrate with existing tool selection context",
+                        "description": "Connect the tool selector component with the application's existing tool selection context to enable tool switching functionality.",
+                        "dependencies": [
+                            3
+                        ],
+                        "details": "Import the existing tool selection context. Implement handlers for tool selection changes. Update the context when a tool is selected. Ensure the UI reflects the currently selected tool. Add any necessary event listeners for keyboard shortcuts.",
+                        "status": "done",
+                        "testStrategy": "Test that selecting a tool updates the application state correctly. Verify that the UI reflects the current tool selection. Test keyboard shortcuts if applicable.",
+                        "parentId": "undefined",
+                        "updatedAt": "2025-10-19T22:14:05.650Z"
+                    },
+                    {
+                        "id": 5,
+                        "title": "Implement animations and position in UI",
+                        "description": "Add framer-motion animations to the tool selector and position it appropriately in the UI layout.",
+                        "dependencies": [
+                            4
+                        ],
+                        "details": "Implement expand/collapse animations using framer-motion as specified. Position the tool selector according to the design requirements. Ensure the component is responsive across different screen sizes. Add any transition effects between tool selections. Finalize styling to match the application's design system.",
+                        "status": "done",
+                        "testStrategy": "Test animations for smoothness and correct behavior. Verify positioning across different viewport sizes. Ensure animations meet accessibility standards (respects reduced motion preferences).",
+                        "parentId": "undefined",
+                        "updatedAt": "2025-10-19T22:15:07.794Z"
+                    }
+                ],
+                "updatedAt": "2025-10-19T22:15:07.794Z"
+            }
+        ],
+        "metadata": {
+            "version": "1.0.0",
+            "lastModified": "2025-10-19T22:16:28.436Z",
+            "taskCount": 3,
+            "completedCount": 3,
+            "tags": [
+                "master"
+            ]
+        }
+    }
+}

@@ -1,0 +1,54 @@
+There is an animation issue. When recreating the nodes, check to see if the user's mouse is hovering over the node, and if so, 
+recreate it with the fully-expanded status button.
+
+Summary of recent changes:
+
+  1. Track Status Changes in Pending Operations (Canvas.tsx:496-501)
+
+  Added status tracking to pendingOperationsRef when an optimistic update happens, just like we do for position, text, and description
+  changes:
+  pendingOperationsRef.current.set(nodeId, {
+      type: "status",
+      data: { status: newStatus },
+      timestamp: Date.now(),
+  });
+
+  2. Updated Type Definition (Canvas.tsx:109)
+
+  Extended the pendingOperationsRef type to include status in the data field:
+  data: { x?: number; y?: number; text?: string; description?: string; status?: string }
+
+  3. Added Status Conflict Detection (Canvas.tsx:574)
+
+  Extended the conflict detection logic to check for status mismatches:
+  (pendingOp.type === "status" && convexNode.status !== pendingOp.data.status)
+
+  4. Added Cleanup on Error (Canvas.tsx:512-513)
+
+  Ensured pending status operations are cleaned up if the mutation fails.
+
+  How It Works Now
+
+  Before (Buggy Flow):
+  1. User clicks status → Optimistic update → CustomNode renders with new status ✓
+  2. Convex syncs back → ALL nodes recreated → CustomNode unmounts/remounts ✗
+  3. isHoveringNode resets to false → Button snaps to small size ✗
+  4. onMouseEnter fires → Button animates to large size (visible flicker) ✗
+
+  After (Fixed Flow):
+  1. User clicks status → Optimistic update → CustomNode renders with new status ✓
+  2. Pending operation tracked → Convex sync detects matching status ✓
+  3. Operation removed from pending → No conflict, no unnecessary node recreation ✓
+  4. isHoveringNode state preserved → No flicker ✓
+
+  Testing
+
+  1. Start the dev server: npm run dev
+  2. Create a node and hover over it (status button should expand)
+  3. Click the status button to cycle through statuses
+  4. Expected: Status changes instantly with no flicker or snap-to-small animation
+  5. Previous bug: Button would snap small then animate to full size
+
+  The fix follows the same pattern already established for other optimistic updates (position/text/description) and maintains proper
+  error handling with rollback on failures.
+

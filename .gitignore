@@ -1,0 +1,45 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dev-debug.log
+
+# Dependency directories
+node_modules/
+
+# Next.js
+/.next/
+/out/
+next-env.d.ts
+.vercel
+
+# Build
+/build
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env*.local
+
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS specific
+.DS_Store
+
+# Testing
+/coverage
+
+# Convex
+convex/_generated/
+!convex/_generated/server.ts
+!convex/_generated/api.ts
+.convex/

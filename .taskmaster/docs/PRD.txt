@@ -1,0 +1,214 @@
+# Workflow Canvas – Product Requirements Document (PRD)
+
+## Overview
+
+**Workflow Canvas** is a collaborative web application that allows multiple users to plan and visualize workflows together in real time. The app provides an infinite canvas where users can create and connect **nodes** (containers of text) with **edges** (arrows between nodes). The interface supports panning, zooming, and live multi-user collaboration.
+
+The frontend is implemented with **React**, **Next.js**, **TypeScript**, and **ReactFlow** for rendering and managing the node-based UI. The backend uses **ConvexDB** for real-time data synchronization between all connected users. ReactFlow manages local node and edge interactions, while Convex synchronizes updates across clients.
+
+Users can:
+- Create, resize, and move nodes.
+- Draw edges between connectors on nodes.
+- Edit node text inline.
+- See all other users' cursors in real-time.
+
+All users share a single global session with equal permissions.
+
+---
+
+## Functional Requirements
+
+### Node Creation
+- Users select the **Node tool** from the bottom toolbar.
+- Clicking and dragging on the canvas shows a **translucent outline** indicating the node’s size.
+- On mouse release, a node is created with that bounding box.
+- Immediately afterward, a **dotted line** appears from the release point to the cursor.  
+  - The distance from the node determines the **number of connectors** (connection points).
+  - The current number is displayed along the dotted line.
+- On the next click, that number of connectors is added to the node (evenly spaced along one side).
+
+### Connector and Edge Behavior
+- Each connector acts as a point where edges can be drawn or connected.
+- To connect two nodes:
+  - Click and drag from one connector to another.
+  - A preview line follows the cursor during dragging.
+  - Releasing over another connector finalizes the connection and creates an **edge**.
+- Each edge is stored as a record linking two connectors.
+
+### Node Interaction
+- **Move:** Click and drag to reposition a node.
+  - During drag, the node moves locally (ReactFlow state only).
+  - **Only on drag end (mouse release)**, update the node's position in Convex.
+  - This prevents excessive database writes during dragging.
+- **Edit:** Double-click a node to enter **text-edit mode**.
+  - The node text becomes editable (contentEditable or text input).
+  - Edits are saved to Convex on blur or confirmation.
+- **Delete:** Select a node and press `Delete` or `Backspace`.
+  - The node and all its connected edges are removed.
+
+### Canvas Interaction
+- The canvas supports **panning and zooming** via mouse or touch gestures.
+- A **toolbar** allows switching between:
+  - Default **Cursor Tool** (for selecting and dragging)
+  - **Node Placement Tool** (for drawing new nodes)
+- ReactFlow handles visual transformations and scaling of nodes and edges.
+
+### Multi-User Collaboration
+- There is **no authentication**; all users share a single live canvas.
+- Each user’s **cursor** is visible to others in real time.
+- Cursors are updated in Convex as separate documents in a `cursors` collection.
+- Convex’s real-time synchronization ensures all users see updates instantly.
+
+---
+
+## Data Model
+
+### Convex Collections
+
+#### `nodes`
+Stores all nodes currently on the canvas.
+
+| Field        | Type     | Description |
+|---------------|----------|-------------|
+| `id`          | string   | Unique Convex document ID |
+| `x`, `y`      | number   | Position of the node |
+| `width`, `height` | number | Dimensions of the node |
+| `text`        | string   | Node text content |
+| `connectors`  | number[] or integer | Either count or array of connector positions |
+
+#### `edges`
+Stores connections between nodes.
+
+| Field             | Type     | Description |
+|--------------------|----------|-------------|
+| `id`               | string   | Edge ID |
+| `source`           | string   | Source node ID |
+| `target`           | string   | Target node ID |
+| `sourceHandle`     | string   | Connector ID on source node |
+| `targetHandle`     | string   | Connector ID on target node |
+
+#### `cursors`
+Tracks each user’s cursor position.
+
+| Field        | Type     | Description |
+|---------------|----------|-------------|
+| `id`          | string   | Session or client ID |
+| `x`, `y`      | number   | Current cursor position |
+| `lastUpdated` | number   | Timestamp for activity |
+
+---
+
+## User Flow
+
+1. **Enter Canvas**
+   - The user opens the site and joins the shared global canvas.
+   - Convex queries populate existing nodes and edges.
+   - A random session ID is generated for cursor tracking.
+
+2. **Select Node Tool**
+   - The user clicks the toolbar icon for the Node tool.
+   - Cursor changes to crosshair.
+
+3. **Draw Node**
+   - User drags on the canvas to define node bounds.
+   - On release, a node is created.
+   - A dotted line appears for connector selection; user clicks to finalize.
+
+4. **Edit Node**
+   - Double-click node → text becomes editable.
+   - On confirmation, Convex updates propagate to all users.
+
+5. **Connect Nodes**
+   - User clicks connector and drags to another connector.
+   - A line preview follows cursor.
+   - Release finalizes edge creation.
+
+6. **Delete Node**
+   - Select node → press `Delete` → remove node and related edges.
+
+7. **View Other Users**
+   - Each user sees other cursors move live (updated via Convex `cursors`).
+
+---
+
+## Technical Architecture
+
+### Frontend
+- **Stack:** React + Next.js + TypeScript
+- **Canvas:** [ReactFlow](https://reactflow.dev)
+  - Handles rendering of nodes, connectors (`<Handle>` components), and edges.
+  - Provides built-in events like `onConnect`, `onNodesChange`, and `onEdgesChange`.
+- **UI State:**  
+  - ReactFlow manages in-memory graph state.
+  - Convex mutations sync it across clients in real time.
+
+### Backend
+- **ConvexDB**
+  - Stores and syncs `nodes`, `edges`, and `cursors` collections.
+  - Each document change automatically updates subscribed clients.
+  - Mutations for CRUD operations:
+    - `createNode`, `updateNode`, `deleteNode`
+    - `createEdge`, `deleteEdge`
+    - `updateCursor`
+  - Subscriptions:
+    - `useQuery(api.nodes.getAll)`
+    - `useQuery(api.edges.getAll)`
+    - `useQuery(api.cursors.getAll)`
+
+### Real-Time Logic
+- Convex provides real-time reactive queries using WebSockets.
+  Changes appear on all clients instantly ([Convex Docs][8]).
+- Optimistic updates ensure low-latency UI response ([Convex Optimistic UI][20]).
+- **Node position updates:** Only saved to database on drag end (mouse release), not during dragging.
+  - During drag, position updates are local to ReactFlow state.
+  - This prevents excessive database writes and improves performance.
+- Cursor updates are **debounced** (50–100ms) to avoid excessive writes ([Cursor Debounce Pattern][17]).
+
+---
+
+## Non-Functional Requirements
+
+| Category | Requirement |
+|-----------|--------------|
+| **Performance** | Updates appear instantly (<200ms latency). |
+| **Scalability** | Supports dozens of concurrent users. |
+| **Usability** | Simple toolbar UI, intuitive interactions. |
+| **Resilience** | Convex retries failed mutations automatically. |
+| **Security** | No authentication required; open access session. |
+| **Accessibility** | Use semantic elements where possible. |
+
+---
+
+## Example Convex Schema (TypeScript)
+
+```ts
+// convex/schema.ts
+
+export default defineSchema({
+  nodes: {
+    x: v.number(),
+    y: v.number(),
+    width: v.number(),
+    height: v.number(),
+    text: v.string(),
+    connectors: v.optional(v.array(v.string())),
+  },
+  edges: {
+    source: v.id("nodes"),
+    target: v.id("nodes"),
+    sourceHandle: v.optional(v.string()),
+    targetHandle: v.optional(v.string()),
+  },
+  cursors: {
+    x: v.number(),
+    y: v.number(),
+    lastUpdated: v.number(),
+  },
+});
+
+References and Documentation:
+Official ReactFlow documentation: https://reactflow.dev/docs
+Convex Real-Time Data and Optimistic Updates: https://docs.convex.dev
+Convex collaboration example: Presence with Cursors: https://docs.convex.dev/tutorials/cursors
+Convex Data Model & Transactions: https://docs.convex.dev/database/overview
+Convex Optimistic UI Updates: https://docs.convex.dev/tutorials/optimistic-updates
