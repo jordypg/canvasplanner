@@ -47,3 +47,7 @@ convex/_generated/
 # Project-specific directories
 .claude/
 .taskmaster/
+
+# Deployment files (sensitive - do not commit)
+*.pem
+DEPLOYMENT.md
