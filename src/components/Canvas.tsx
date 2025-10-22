@@ -377,7 +377,9 @@ function CanvasContent() {
         }
 
         // Connect to Socket.io server
-        const socket = io();
+        const socket = io({
+            path: '/canvasplanner/socket.io/'
+        });
         socketRef.current = socket;
 
         // Handle initial cursors

@@ -30,6 +30,7 @@ app.prepare().then(() => {
   });
 
   const io = new Server(httpServer, {
+    path: '/canvasplanner/socket.io/',
     cors: {
       origin: '*',
       methods: ['GET', 'POST'],
