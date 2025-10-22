@@ -43,3 +43,7 @@ convex/_generated/
 !convex/_generated/server.ts
 !convex/_generated/api.ts
 .convex/
+
+# Project-specific directories
+.claude/
+.taskmaster/
