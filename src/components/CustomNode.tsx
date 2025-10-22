@@ -1,5 +1,6 @@
 import { memo, useState, useCallback, useRef, useEffect } from "react";
 import { Handle, Position, NodeProps } from "reactflow";
+import { Clock } from "lucide-react";
 
 interface Connector {
   id: string;
@@ -9,31 +10,51 @@ interface Connector {
 }
 
 type NodeStatus = "not ready" | "can start" | "in progress" | "complete";
+type TimeUnit = "minutes" | "hours" | "days" | "weeks";
 
 interface CustomNodeData {
   label: string;
   description?: string;
   status?: NodeStatus;
+  timeEstimate?: number;
+  timeUnit?: TimeUnit;
   connectors?: Connector[];
   isExpanded?: boolean;
   onLabelChange?: (newLabel: string) => void;
   onDescriptionChange?: (newDescription: string) => void;
   onStatusChange?: (newStatus: NodeStatus) => void;
+  onTimeEstimateChange?: (timeEstimate: number | undefined) => void;
+  onTimeUnitChange?: (timeUnit: TimeUnit) => void;
+  onTimeUntilReady?: () => number;
   onHandleHover?: (nodeId: string | null, handleId: string | null) => void;
   onNodeHover?: (nodeId: string | null) => void;
+  onStatusHover?: (nodeId: string | null) => void;
   onConnectorDelete?: (nodeId: string, connectorId: string) => void;
+  onClockPopupChange?: (nodeId: string, isOpen: boolean) => void;
+  onRegisterRecalculate?: (nodeId: string, recalculateFn: (() => void) | null) => void;
 }
 
 function CustomNode({ data, selected, id }: NodeProps<CustomNodeData>) {
-  const { label, description = "", status = "not ready", connectors = [], isExpanded = false, onLabelChange, onDescriptionChange, onStatusChange, onHandleHover, onNodeHover, onConnectorDelete } = data;
+  const { label, description = "", status = "not ready", timeEstimate, timeUnit = "hours", connectors = [], isExpanded = false, onLabelChange, onDescriptionChange, onStatusChange, onTimeEstimateChange, onTimeUnitChange, onTimeUntilReady, onHandleHover, onNodeHover, onStatusHover, onConnectorDelete, onClockPopupChange, onRegisterRecalculate } = data;
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [editTitleValue, setEditTitleValue] = useState(label);
   const [editDescriptionValue, setEditDescriptionValue] = useState(description);
   const [hoveredHandleId, setHoveredHandleId] = useState<string | null>(null);
   const [selectedHandleId, setSelectedHandleId] = useState<string | null>(null);
+  const [isClockPopupOpen, setIsClockPopupOpen] = useState(false);
+  const [localTimeEstimate, setLocalTimeEstimate] = useState<string>(timeEstimate?.toString() || "");
+  const [localTimeUnit, setLocalTimeUnit] = useState<TimeUnit>(timeUnit);
+  const [timeUntilReady, setTimeUntilReady] = useState<number | null>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const descriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const clockPopupRef = useRef<HTMLDivElement>(null);
+
+  // Sync local time estimate with props
+  useEffect(() => {
+    setLocalTimeEstimate(timeEstimate?.toString() || "");
+    setLocalTimeUnit(timeUnit);
+  }, [timeEstimate, timeUnit]);
 
   // Focus input when entering edit mode
   useEffect(() => {
@@ -131,6 +152,44 @@ function CustomNode({ data, selected, id }: NodeProps<CustomNodeData>) {
     onStatusChange?.(nextStatus);
   }, [status, onStatusChange]);
 
+  // Handle clock icon click - toggle popup and calculate time until ready
+  const handleClockClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const willOpen = !isClockPopupOpen;
+    setIsClockPopupOpen(willOpen);
+
+    // Calculate time until ready when opening the popup
+    if (willOpen && onTimeUntilReady) {
+      const calculatedTime = onTimeUntilReady();
+      setTimeUntilReady(calculatedTime);
+    }
+  }, [isClockPopupOpen, onTimeUntilReady]);
+
+  // Handle time estimate input change
+  const handleTimeEstimateChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setLocalTimeEstimate(value);
+
+    // Only update database if value is a valid number or empty
+    const numValue = parseFloat(value);
+    if (value === "" || !isNaN(numValue)) {
+      onTimeEstimateChange?.(value === "" ? undefined : numValue);
+    }
+  }, [onTimeEstimateChange]);
+
+  // Handle time unit toggle - cycle through units
+  const handleTimeUnitToggle = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const unitCycle: TimeUnit[] = ["minutes", "hours", "days", "weeks"];
+    const currentIndex = unitCycle.indexOf(localTimeUnit);
+    const nextIndex = (currentIndex + 1) % unitCycle.length;
+    const nextUnit = unitCycle[nextIndex];
+    setLocalTimeUnit(nextUnit);
+
+    // Update database with new unit
+    onTimeUnitChange?.(nextUnit);
+  }, [localTimeUnit, onTimeUnitChange]);
+
   // Get status configuration (colors, labels, etc.)
   const getStatusConfig = useCallback((status: NodeStatus) => {
     switch (status) {
@@ -181,6 +240,45 @@ function CustomNode({ data, selected, id }: NodeProps<CustomNodeData>) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [selectedHandleId, id, onConnectorDelete]);
 
+  // Handle clicks outside the clock popup to close it
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (isClockPopupOpen && clockPopupRef.current && !clockPopupRef.current.contains(e.target as Node)) {
+        setIsClockPopupOpen(false);
+      }
+    };
+
+    if (isClockPopupOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [isClockPopupOpen]);
+
+  // Report popup state changes to parent
+  useEffect(() => {
+    if (onClockPopupChange) {
+      onClockPopupChange(id, isClockPopupOpen);
+    }
+  }, [id, isClockPopupOpen, onClockPopupChange]);
+
+  // Register recalculation function with parent
+  useEffect(() => {
+    if (onRegisterRecalculate && onTimeUntilReady) {
+      const recalculateFn = () => {
+        const calculatedTime = onTimeUntilReady();
+        setTimeUntilReady(calculatedTime);
+      };
+
+      // Register on mount
+      onRegisterRecalculate(id, recalculateFn);
+
+      // Unregister on unmount
+      return () => {
+        onRegisterRecalculate(id, null);
+      };
+    }
+  }, [id, onRegisterRecalculate, onTimeUntilReady]);
+
   // Helper to convert side to ReactFlow Position
   const getPositionFromSide = useCallback((side: string): Position => {
     switch (side) {
@@ -196,20 +294,16 @@ function CustomNode({ data, selected, id }: NodeProps<CustomNodeData>) {
 
   return (
     <div
-      className={`bg-white rounded-lg border-2 p-4 shadow-md min-w-[100px] min-h-[80px] transition-all ${
+      className={`bg-white rounded-lg border-2 p-1 shadow-md min-w-[100px] min-h-[80px] transition-all ${
         selected
           ? "border-blue-500 shadow-lg"
           : `${statusConfig.borderColor} hover:shadow-lg`
       }`}
       style={{ width: "100%", height: "100%" }}
       title="Double-click title or click description to edit"
-      onMouseEnter={() => {
-        onNodeHover?.(id);
-      }}
-      onMouseLeave={() => {
-        onNodeHover?.(null);
-      }}
       onClick={(e) => e.stopPropagation()}
+      onMouseEnter={() => onNodeHover?.(id)}
+      onMouseLeave={() => onNodeHover?.(null)}
     >
       {/* Render handles based on connector data */}
       {connectors.map((connector) => {
@@ -224,11 +318,7 @@ function CustomNode({ data, selected, id }: NodeProps<CustomNodeData>) {
             type={connectorType === "input" ? "target" : "source"}
             position={getPositionFromSide(connector.side)}
             id={connector.id}
-            className={`!border-2 !border-white transition-all duration-200 cursor-pointer ${
-              connectorType === "input"
-                ? "!bg-blue-500 hover:!bg-blue-600"
-                : "!bg-green-500 hover:!bg-green-600"
-            } ${
+            className={`!border-2 !border-white transition-all duration-200 cursor-pointer !bg-black hover:!bg-gray-800 ${
               isSelected
                 ? "!w-5 !h-5 !ring-4 !ring-red-400 !shadow-lg"
                 : isHovered
@@ -308,6 +398,12 @@ function CustomNode({ data, selected, id }: NodeProps<CustomNodeData>) {
         {/* Status badge */}
         <button
           onClick={handleStatusClick}
+          onMouseEnter={() => {
+            onStatusHover?.(id);
+          }}
+          onMouseLeave={() => {
+            onStatusHover?.(null);
+          }}
           className={`absolute top-2 left-2 h-6 ${statusConfig.bgColor} shadow-sm hover:shadow-md rounded-full flex items-center justify-center ${statusConfig.textColor} overflow-hidden`}
           style={{
             width: isExpanded ? "80px" : "1.5rem",
@@ -323,6 +419,70 @@ function CustomNode({ data, selected, id }: NodeProps<CustomNodeData>) {
             </span>
           )}
         </button>
+
+        {/* Clock icon */}
+        <div className="absolute top-2 right-2" ref={clockPopupRef}>
+          <button
+            onClick={handleClockClick}
+            className="w-6 h-6 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors shadow-sm hover:shadow-md"
+            title="View time tracking"
+            aria-label="Time tracking"
+          >
+            <Clock size={14} />
+          </button>
+
+          {/* Clock popup */}
+          {isClockPopupOpen && (
+            <div
+              className="absolute bottom-full right-0 mb-2 bg-white border-2 border-gray-200 rounded-lg shadow-lg p-3 min-w-[200px] z-50"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-xs text-gray-700">
+                <p className="font-semibold mb-3">Time Estimate</p>
+
+                {/* Time input and unit toggle */}
+                <div className="flex items-center gap-2 mb-4">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={localTimeEstimate}
+                    onChange={handleTimeEstimateChange}
+                    placeholder="0"
+                    className="w-20 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+
+                  <button
+                    onClick={handleTimeUnitToggle}
+                    className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded transition-colors"
+                  >
+                    {localTimeUnit}
+                  </button>
+                </div>
+
+                {/* Time Until Ready */}
+                <div className="pt-3 border-t border-gray-200">
+                  <p className="font-semibold mb-2">Time Until Ready</p>
+                  <div className="px-2 py-1.5 bg-blue-50 border border-blue-200 rounded text-blue-700">
+                    {timeUntilReady !== null ? (
+                      <span className="font-medium">
+                        {timeUntilReady} {localTimeUnit}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400 italic">Calculating...</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              {/* Small arrow pointing down */}
+              <div className="absolute top-full right-2 -mt-[2px]">
+                <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-gray-200"></div>
+                <div className="absolute top-[-8px] left-[-5px] w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[5px] border-t-white"></div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

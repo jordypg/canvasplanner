@@ -108,8 +108,14 @@ function CanvasContent() {
     const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
     const collapseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+    // Track open clock popups for Time Until Ready recalculation
+    const [openClockPopups, setOpenClockPopups] = useState<Set<string>>(new Set());
+
+    // Store recalculation callbacks for nodes with open clock popups
+    const recalculateCallbacksRef = useRef<Map<string, () => void>>(new Map());
+
     // Conflict resolution state - track pending operations
-    const pendingOperationsRef = useRef<Map<string, { type: string; data: { x?: number; y?: number; text?: string; description?: string; status?: string }; timestamp: number }>>(new Map());
+    const pendingOperationsRef = useRef<Map<string, { type: string; data: { x?: number; y?: number; text?: string; description?: string; status?: string; timeEstimate?: number; timeUnit?: string }; timestamp: number }>>(new Map());
     const [conflictDetected, setConflictDetected] = useState(false);
     const conflictDetectedRef = useRef(false);
 
@@ -154,6 +160,16 @@ function CanvasContent() {
     // Convex queries and mutations (for nodes/edges only)
     const convexNodes = useQuery(api.nodes.getAll);
     const convexEdges = useQuery(api.edges.getAll);
+
+    // Store convex data in refs so calculateTimeUntilReady always uses current values
+    const convexNodesRef = useRef(convexNodes);
+    const convexEdgesRef = useRef(convexEdges);
+
+    useEffect(() => {
+        convexNodesRef.current = convexNodes;
+        convexEdgesRef.current = convexEdges;
+    }, [convexNodes, convexEdges]);
+
     const createNode = useMutation(api.nodes.create);
     const createEdge = useMutation(api.edges.create);
     const removeNode = useMutation(api.nodes.remove);
@@ -163,6 +179,8 @@ function CanvasContent() {
     const updateNodeText = useMutation(api.nodes.updateText);
     const updateNodeDescription = useMutation(api.nodes.updateDescription);
     const updateNodeStatus = useMutation(api.nodes.updateStatus);
+    const updateNodeTimeEstimate = useMutation(api.nodes.updateTimeEstimate);
+    const updateNodeTimeUnit = useMutation(api.nodes.updateTimeUnit);
     const updateConnectors = useMutation(api.nodes.updateConnectors);
 
     // Register custom node types
@@ -177,10 +195,13 @@ function CanvasContent() {
         }
     }, []);
 
-    // Callback for nodes to report node hover state
-    const handleNodeHover = useCallback((nodeId: string | null) => {
+    // Callback for nodes to report node hover state (for deletion)
+    const handleNodeHoverForDeletion = useCallback((nodeId: string | null) => {
         setHoveredNodeId(nodeId);
+    }, []);
 
+    // Callback for status button hover (for expansion)
+    const handleStatusButtonHover = useCallback((nodeId: string | null) => {
         // Clear any pending collapse timeout
         if (collapseTimeoutRef.current) {
             clearTimeout(collapseTimeoutRef.current);
@@ -188,14 +209,36 @@ function CanvasContent() {
         }
 
         if (nodeId) {
-            // Immediately expand when hovering over a node
+            // Immediately expand when hovering over status button
             setExpandedNodeId(nodeId);
         } else {
-            // Delay collapse by 100ms when leaving a node
+            // Delay collapse by 100ms when leaving status button
             collapseTimeoutRef.current = setTimeout(() => {
                 setExpandedNodeId(null);
                 collapseTimeoutRef.current = null;
             }, 100);
+        }
+    }, []);
+
+    // Callback for clock popup open/close state
+    const handleClockPopupChange = useCallback((nodeId: string, isOpen: boolean) => {
+        setOpenClockPopups((prev) => {
+            const next = new Set(prev);
+            if (isOpen) {
+                next.add(nodeId);
+            } else {
+                next.delete(nodeId);
+            }
+            return next;
+        });
+    }, []);
+
+    // Callback for nodes to register/unregister recalculation functions
+    const handleRegisterRecalculate = useCallback((nodeId: string, recalculateFn: (() => void) | null) => {
+        if (recalculateFn) {
+            recalculateCallbacksRef.current.set(nodeId, recalculateFn);
+        } else {
+            recalculateCallbacksRef.current.delete(nodeId);
         }
     }, []);
 
@@ -572,18 +615,186 @@ function CanvasContent() {
         };
     }, [updateNodeStatus, toastError, setNodes]);
 
+    const createTimeEstimateChangeHandler = useCallback((nodeId: string) => {
+        return async (newTimeEstimate: number | undefined) => {
+            // Track pending operation
+            pendingOperationsRef.current.set(nodeId, {
+                type: "timeEstimate",
+                data: { timeEstimate: newTimeEstimate },
+                timestamp: Date.now(),
+            });
+
+            try {
+                await updateNodeTimeEstimate({
+                    id: nodeId as Id<"nodes">,
+                    timeEstimate: newTimeEstimate,
+                });
+            } catch (error) {
+                console.error("Failed to update node time estimate:", error);
+                pendingOperationsRef.current.delete(nodeId);
+                toastError("Failed to update time estimate");
+            }
+        };
+    }, [updateNodeTimeEstimate, toastError]);
+
+    const createTimeUnitChangeHandler = useCallback((nodeId: string) => {
+        return async (newTimeUnit: "minutes" | "hours" | "days" | "weeks") => {
+            // Track pending operation
+            pendingOperationsRef.current.set(nodeId, {
+                type: "timeUnit",
+                data: { timeUnit: newTimeUnit },
+                timestamp: Date.now(),
+            });
+
+            try {
+                await updateNodeTimeUnit({
+                    id: nodeId as Id<"nodes">,
+                    timeUnit: newTimeUnit,
+                });
+            } catch (error) {
+                console.error("Failed to update node time unit:", error);
+                pendingOperationsRef.current.delete(nodeId);
+                toastError("Failed to update time unit");
+            }
+        };
+    }, [updateNodeTimeUnit, toastError]);
+
+    // Calculate time until ready for a node (critical path calculation)
+    // Reads from convexNodesRef/convexEdgesRef to always use current data (no stale closures)
+    const calculateTimeUntilReady = useCallback((nodeId: string): number => {
+        // Read current data from refs (always up-to-date)
+        const nodes = convexNodesRef.current;
+        const edges = convexEdgesRef.current;
+
+        // Early return if no data loaded yet
+        if (!nodes || !edges) {
+            return 0;
+        }
+
+        // Helper function to convert time to hours (base unit for calculations)
+        const toHours = (time: number, unit: string): number => {
+            switch (unit) {
+                case "minutes": return time / 60;
+                case "hours": return time;
+                case "days": return time * 24;
+                case "weeks": return time * 24 * 7;
+                default: return time; // Default to hours if unit unknown
+            }
+        };
+
+        // Helper function to convert hours to target unit
+        const fromHours = (hours: number, unit: string): number => {
+            switch (unit) {
+                case "minutes": return hours * 60;
+                case "hours": return hours;
+                case "days": return hours / 24;
+                case "weeks": return hours / (24 * 7);
+                default: return hours; // Default to hours if unit unknown
+            }
+        };
+
+        // Helper function to calculate time until a node is complete (not just ready)
+        // This includes the time needed to complete all dependencies + the node's own time
+        // Returns time in hours (base unit)
+        const calculateTimeToComplete = (currentNodeId: string, path: Set<string>): number => {
+            // Detect cycles - if we've seen this node in the current path, ignore it
+            if (path.has(currentNodeId)) {
+                console.warn(`Cycle detected in dependency graph at node ${currentNodeId}`);
+                return 0;
+            }
+
+            // Read from current nodes data
+            const currentNode = nodes.find((n: { _id: string }) => n._id === currentNodeId);
+            if (!currentNode) {
+                return 0;
+            }
+
+            // If the node is complete, it takes 0 time
+            if (currentNode.status === "complete") {
+                return 0;
+            }
+
+            // Find all dependencies (incoming edges where this node is the target)
+            const incomingEdges = edges.filter((e: { target: string }) => e.target === currentNodeId);
+            const dependencies = incomingEdges
+                .map((e: { source: string }) => nodes.find((n: { _id: string }) => n._id === e.source))
+                .filter((n: unknown): n is { _id: string; status?: string; timeEstimate?: number; timeUnit?: string } => n !== undefined);
+
+            // Filter for incomplete dependencies only
+            const incompleteDependencies = dependencies.filter((n: { status?: string }) => n.status !== "complete");
+
+            // Calculate the maximum time to complete all dependencies
+            // (they can run in parallel, so we take the longest path)
+            const newPath = new Set(path);
+            newPath.add(currentNodeId);
+
+            const maxDependencyTime = incompleteDependencies.length > 0
+                ? Math.max(...incompleteDependencies.map((dep: { _id: string }) => calculateTimeToComplete(dep._id, newPath)))
+                : 0;
+
+            // Total time to complete = max dependency time + this node's own time (converted to hours)
+            const ownTimeEstimate = currentNode.timeEstimate || 0;
+            const ownTimeUnit = currentNode.timeUnit || "hours";
+            const ownTimeInHours = toHours(ownTimeEstimate, ownTimeUnit);
+
+            return maxDependencyTime + ownTimeInHours;
+        };
+
+        const targetNode = nodes.find((n: { _id: string }) => n._id === nodeId);
+        if (!targetNode) {
+            return 0;
+        }
+
+        // If the target node is complete, time until ready is 0
+        if (targetNode.status === "complete") {
+            return 0;
+        }
+
+        // Find all dependencies of the target node
+        const incomingEdges = edges.filter((e: { target: string }) => e.target === nodeId);
+        const dependencies = incomingEdges
+            .map((e: { source: string }) => nodes.find((n: { _id: string }) => n._id === e.source))
+            .filter((n: unknown): n is { _id: string; status?: string; timeEstimate?: number; timeUnit?: string } => n !== undefined);
+
+        const incompleteDependencies = dependencies.filter((n: { status?: string }) => n.status !== "complete");
+
+        // If no incomplete dependencies, the node can start now (time = 0)
+        if (incompleteDependencies.length === 0) {
+            return 0;
+        }
+
+        // Time until ready = the maximum time to complete all dependencies
+        // This is the critical path to the target node (calculated in hours)
+        const path = new Set<string>();
+        const timeInHours = Math.max(...incompleteDependencies.map((dep: { _id: string }) => calculateTimeToComplete(dep._id, path)));
+
+        // Convert result to the target node's time unit and round to 1 decimal place
+        const targetTimeUnit = targetNode.timeUnit || "hours";
+        const timeInTargetUnit = fromHours(timeInHours, targetTimeUnit);
+        return Math.round(timeInTargetUnit * 10) / 10;
+    }, []); // Empty deps - function is stable, always reads current data from refs
+
+    // Create handler to calculate time until ready for a specific node
+    const createTimeUntilReadyHandler = useCallback((nodeId: string) => {
+        return () => {
+            return calculateTimeUntilReady(nodeId);
+        };
+    }, [calculateTimeUntilReady]);
+
     // Sync Convex nodes to ReactFlow state with conflict detection
     useEffect(() => {
         if (!convexNodes) return;
 
         // Check if this is the same data we've already synced
-        const convexDataHash = JSON.stringify(convexNodes.map((n: { _id: string; x: number; y: number; text: string; description?: string; status?: string; connectors?: Array<unknown> }) => ({
+        const convexDataHash = JSON.stringify(convexNodes.map((n: { _id: string; x: number; y: number; text: string; description?: string; status?: string; timeEstimate?: number; timeUnit?: string; connectors?: Array<unknown> }) => ({
             _id: n._id,
             x: n.x,
             y: n.y,
             text: n.text,
             description: n.description,
             status: n.status,
+            timeEstimate: n.timeEstimate,
+            timeUnit: n.timeUnit,
             connectors: n.connectors,
         })));
 
@@ -598,7 +809,7 @@ function CanvasContent() {
 
         // Check for conflicts with pending operations (don't trigger state updates here)
         let hasConflict = false;
-        convexNodes.forEach((convexNode: { _id: string; x: number; y: number; text: string; description?: string; status?: string }) => {
+        convexNodes.forEach((convexNode: { _id: string; x: number; y: number; text: string; description?: string; status?: string; timeEstimate?: number; timeUnit?: string }) => {
             const pendingOp = pendingOperationsRef.current.get(convexNode._id);
             if (pendingOp) {
                 // Check if server state differs from what we expected
@@ -610,7 +821,9 @@ function CanvasContent() {
                             Math.abs(convexNode.y - pendingOp.data.y) > 1)) ||
                     (pendingOp.type === "text" && convexNode.text !== pendingOp.data.text) ||
                     (pendingOp.type === "description" && convexNode.description !== pendingOp.data.description) ||
-                    (pendingOp.type === "status" && convexNode.status !== pendingOp.data.status);
+                    (pendingOp.type === "status" && convexNode.status !== pendingOp.data.status) ||
+                    (pendingOp.type === "timeEstimate" && convexNode.timeEstimate !== pendingOp.data.timeEstimate) ||
+                    (pendingOp.type === "timeUnit" && convexNode.timeUnit !== pendingOp.data.timeUnit);
 
                 if (isConflict) {
                     console.warn("⚠️ Conflict detected for node:", convexNode._id, "Operation:", pendingOp.type);
@@ -633,7 +846,7 @@ function CanvasContent() {
         }
 
         // Transform convexNodes to reactFlowNodes inline
-        const transformedNodes = convexNodes.map((node: { _id: string; x: number; y: number; text: string; description?: string; status?: "not ready" | "can start" | "in progress" | "complete"; connectors?: Array<{ id: string; type: string; side: string; position: number }>; width: number; height: number }) => ({
+        const transformedNodes = convexNodes.map((node: { _id: string; x: number; y: number; text: string; description?: string; status?: "not ready" | "can start" | "in progress" | "complete"; timeEstimate?: number; timeUnit?: "minutes" | "hours" | "days" | "weeks"; connectors?: Array<{ id: string; type: string; side: string; position: number }>; width: number; height: number }) => ({
             id: node._id,
             type: "custom",
             position: { x: node.x, y: node.y },
@@ -641,14 +854,22 @@ function CanvasContent() {
                 label: node.text,
                 description: node.description || "",
                 status: node.status || "not ready",
+                timeEstimate: node.timeEstimate,
+                timeUnit: node.timeUnit || "hours",
                 connectors: node.connectors || [],
                 isExpanded: expandedNodeId === node._id,
                 onLabelChange: createLabelChangeHandler(node._id, node.text),
                 onDescriptionChange: createDescriptionChangeHandler(node._id),
                 onStatusChange: createStatusChangeHandler(node._id),
+                onTimeEstimateChange: createTimeEstimateChangeHandler(node._id),
+                onTimeUnitChange: createTimeUnitChangeHandler(node._id),
+                onTimeUntilReady: createTimeUntilReadyHandler(node._id),
                 onHandleHover: handleHandleHover,
-                onNodeHover: handleNodeHover,
+                onNodeHover: handleNodeHoverForDeletion,
+                onStatusHover: handleStatusButtonHover,
                 onConnectorDelete: removeConnectorAndRedistribute,
+                onClockPopupChange: handleClockPopupChange,
+                onRegisterRecalculate: handleRegisterRecalculate,
             },
             style: {
                 width: node.width,
@@ -656,33 +877,114 @@ function CanvasContent() {
             },
         }));
 
-        setNodes(transformedNodes);
-    }, [convexNodes, setNodes, createLabelChangeHandler, createDescriptionChangeHandler, createStatusChangeHandler, handleHandleHover, handleNodeHover, removeConnectorAndRedistribute]);
+        // Add invisible anchor nodes at canvas corners to force minimap to show full canvas bounds
+        const anchorNodes: Node[] = [
+            {
+                id: 'anchor-top-left',
+                type: 'default',
+                position: { x: CANVAS_MIN_X, y: CANVAS_MIN_Y },
+                data: { label: '' },
+                style: { opacity: 0, pointerEvents: 'none', width: 1, height: 1 },
+                draggable: false,
+                selectable: false,
+                connectable: false,
+            },
+            {
+                id: 'anchor-top-right',
+                type: 'default',
+                position: { x: CANVAS_MAX_X, y: CANVAS_MIN_Y },
+                data: { label: '' },
+                style: { opacity: 0, pointerEvents: 'none', width: 1, height: 1 },
+                draggable: false,
+                selectable: false,
+                connectable: false,
+            },
+            {
+                id: 'anchor-bottom-left',
+                type: 'default',
+                position: { x: CANVAS_MIN_X, y: CANVAS_MAX_Y },
+                data: { label: '' },
+                style: { opacity: 0, pointerEvents: 'none', width: 1, height: 1 },
+                draggable: false,
+                selectable: false,
+                connectable: false,
+            },
+            {
+                id: 'anchor-bottom-right',
+                type: 'default',
+                position: { x: CANVAS_MAX_X, y: CANVAS_MAX_Y },
+                data: { label: '' },
+                style: { opacity: 0, pointerEvents: 'none', width: 1, height: 1 },
+                draggable: false,
+                selectable: false,
+                connectable: false,
+            },
+        ];
+
+        setNodes([...transformedNodes, ...anchorNodes]);
+    }, [convexNodes, setNodes, createLabelChangeHandler, createDescriptionChangeHandler, createStatusChangeHandler, createTimeEstimateChangeHandler, createTimeUnitChangeHandler, createTimeUntilReadyHandler, handleHandleHover, handleNodeHoverForDeletion, handleStatusButtonHover, removeConnectorAndRedistribute, handleClockPopupChange, handleRegisterRecalculate, expandedNodeId]);
+
+    // Trigger recalculation for all open clock popups when database data changes
+    // Uses convexNodes (source of truth) to avoid stale closure lag
+    useEffect(() => {
+        // Skip if no data loaded yet
+        if (!convexNodes || convexNodes.length === 0) return;
+
+        // Trigger recalculation for all nodes with open clock popups
+        openClockPopups.forEach((nodeId) => {
+            const recalculateFn = recalculateCallbacksRef.current.get(nodeId);
+            if (recalculateFn) {
+                recalculateFn();
+            }
+        });
+    }, [convexNodes, openClockPopups]);
+
+    // Helper function to get color based on node status
+    const getStatusColor = (status?: "not ready" | "can start" | "in progress" | "complete") => {
+        switch (status) {
+            case "not ready":
+                return '#dc2626'; // red-600
+            case "can start":
+                return '#d97706'; // yellow-600
+            case "in progress":
+                return '#2563eb'; // blue-600
+            case "complete":
+                return '#16a34a'; // green-600
+            default:
+                return '#6b7280'; // gray-500
+        }
+    };
 
     // Memoize transformed ReactFlow edges to prevent unnecessary recalculations
     const reactFlowEdges = useMemo(() => {
-        if (!convexEdges) return [];
+        if (!convexEdges || !convexNodes) return [];
 
-        return convexEdges.map((edge: { _id: string; source: string; target: string; sourceHandle?: string; targetHandle?: string }) => ({
-            id: edge._id,
-            source: edge.source,
-            target: edge.target,
-            sourceHandle: edge.sourceHandle || undefined,
-            targetHandle: edge.targetHandle || undefined,
-            type: 'smoothstep',
-            animated: true,
-            style: {
-                stroke: '#6366f1',
-                strokeWidth: 2,
-            },
-            markerEnd: {
-                type: 'arrowclosed' as const,
-                color: '#6366f1',
-                width: 20,
-                height: 20,
-            },
-        }));
-    }, [convexEdges]);
+        return convexEdges.map((edge: { _id: string; source: string; target: string; sourceHandle?: string; targetHandle?: string }) => {
+            // Find the source node to get its status
+            const sourceNode = convexNodes.find((node: { _id: string }) => node._id === edge.source);
+            const edgeColor = getStatusColor(sourceNode?.status);
+
+            return {
+                id: edge._id,
+                source: edge.source,
+                target: edge.target,
+                sourceHandle: edge.sourceHandle || undefined,
+                targetHandle: edge.targetHandle || undefined,
+                type: 'smoothstep',
+                animated: false,
+                style: {
+                    stroke: edgeColor,
+                    strokeWidth: 2,
+                },
+                markerEnd: {
+                    type: 'arrowclosed' as const,
+                    color: edgeColor,
+                    width: 20,
+                    height: 20,
+                },
+            };
+        });
+    }, [convexEdges, convexNodes]);
 
     // Sync Convex edges to ReactFlow state
     useEffect(() => {
@@ -1408,8 +1710,10 @@ function CanvasContent() {
                 const nodeHeight = connectorPlacement.nodeHeight / zoom;
 
                 // Clamp node position to canvas bounds
-                const clampedX = Math.max(CANVAS_MIN_X, Math.min(CANVAS_MAX_X - nodeWidth, flowPosition.x));
-                const clampedY = Math.max(CANVAS_MIN_Y, Math.min(CANVAS_MAX_Y - nodeHeight, flowPosition.y));
+                // Account for nodeOrigin={[0.5, 0.5]} which centers nodes at the given position
+                // We want the top-left corner at flowPosition, so offset by half dimensions
+                const clampedX = Math.max(CANVAS_MIN_X, Math.min(CANVAS_MAX_X - nodeWidth, flowPosition.x + nodeWidth / 2));
+                const clampedY = Math.max(CANVAS_MIN_Y, Math.min(CANVAS_MAX_Y - nodeHeight, flowPosition.y + nodeHeight / 2));
 
 
                 // Create connectors for Convex (input connectors on the left, one output on the right)
@@ -1441,14 +1745,22 @@ function CanvasContent() {
                         label: "New Node",
                         description: "",
                         status: "not ready",
+                        timeEstimate: undefined,
+                        timeUnit: "hours",
                         connectors,
                         isExpanded: false,
                         onLabelChange: () => { },
                         onDescriptionChange: () => { },
                         onStatusChange: () => { },
+                        onTimeEstimateChange: () => { },
+                        onTimeUnitChange: () => { },
+                        onTimeUntilReady: () => 0,
                         onHandleHover: handleHandleHover,
-                        onNodeHover: handleNodeHover,
+                        onNodeHover: handleNodeHoverForDeletion,
+                        onStatusHover: handleStatusButtonHover,
                         onConnectorDelete: removeConnectorAndRedistribute,
+                        onClockPopupChange: handleClockPopupChange,
+                        onRegisterRecalculate: handleRegisterRecalculate,
                     },
                     style: {
                         width: nodeWidth,
@@ -1460,8 +1772,7 @@ function CanvasContent() {
 
                 // Persist to Convex
                 try {
-
-                    const result = await createNode({
+                    await createNode({
                         x: clampedX,
                         y: clampedY,
                         width: nodeWidth,
@@ -1470,7 +1781,6 @@ function CanvasContent() {
                         status: "not ready",
                         connectors,
                     });
-
 
                     // Remove optimistic node and let Convex sync add the real one
                     setNodes((nds) => nds.filter((n) => n.id !== tempId));
@@ -1493,7 +1803,7 @@ function CanvasContent() {
             } else {
             }
         },
-        [dragState, connectorPlacement, screenToFlowPosition, getZoom, createNode, handleHandleHover, removeConnectorAndRedistribute, setNodes, toastError]
+        [dragState, connectorPlacement, screenToFlowPosition, getZoom, createNode, handleHandleHover, handleNodeHoverForDeletion, handleStatusButtonHover, removeConnectorAndRedistribute, handleClockPopupChange, handleRegisterRecalculate, setNodes, toastError]
     );
 
     // Calculate cursor style based on active tool
@@ -1561,8 +1871,8 @@ function CanvasContent() {
                     className="react-flow__minimap"
                     style={{ left: "10px", right: "auto" }}
                     nodeStrokeWidth={3}
-                    zoomable
-                    pannable
+                    zoomable={false}
+                    pannable={false}
                     maskColor="transparent"
                 />
 

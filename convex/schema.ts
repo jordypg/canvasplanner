@@ -15,6 +15,13 @@ export default defineSchema({
       v.literal("in progress"),
       v.literal("complete")
     )),
+    timeEstimate: v.optional(v.float64()),
+    timeUnit: v.optional(v.union(
+      v.literal("minutes"),
+      v.literal("hours"),
+      v.literal("days"),
+      v.literal("weeks")
+    )),
     connectors: v.optional(
       v.array(
         v.object({

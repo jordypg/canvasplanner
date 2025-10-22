@@ -135,6 +135,35 @@ export const updateStatus = mutation({
   },
 });
 
+// Mutation: Update node time estimate value
+export const updateTimeEstimate = mutation({
+  args: {
+    id: v.id("nodes"),
+    timeEstimate: v.optional(v.float64()),
+  },
+  handler: async (ctx: any, args: any) => {
+    const { id, timeEstimate } = args;
+    await ctx.db.patch(id, { timeEstimate });
+  },
+});
+
+// Mutation: Update node time unit
+export const updateTimeUnit = mutation({
+  args: {
+    id: v.id("nodes"),
+    timeUnit: v.union(
+      v.literal("minutes"),
+      v.literal("hours"),
+      v.literal("days"),
+      v.literal("weeks")
+    ),
+  },
+  handler: async (ctx: any, args: any) => {
+    const { id, timeUnit } = args;
+    await ctx.db.patch(id, { timeUnit });
+  },
+});
+
 // Mutation: Update node connectors
 export const updateConnectors = mutation({
   args: {
