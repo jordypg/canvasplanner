@@ -32,10 +32,11 @@ interface CustomNodeData {
   onConnectorDelete?: (nodeId: string, connectorId: string) => void;
   onClockPopupChange?: (nodeId: string, isOpen: boolean) => void;
   onRegisterRecalculate?: (nodeId: string, recalculateFn: (() => void) | null) => void;
+  onDimensionChange?: (nodeId: string, width: number, height: number) => void;
 }
 
 function CustomNode({ data, selected, id }: NodeProps<CustomNodeData>) {
-  const { label, description = "", status = "not ready", timeEstimate, timeUnit = "hours", connectors = [], isExpanded = false, onLabelChange, onDescriptionChange, onStatusChange, onTimeEstimateChange, onTimeUnitChange, onTimeUntilReady, onHandleHover, onNodeHover, onStatusHover, onConnectorDelete, onClockPopupChange, onRegisterRecalculate } = data;
+  const { label, description = "", status = "not ready", timeEstimate, timeUnit = "hours", connectors = [], isExpanded = false, onLabelChange, onDescriptionChange, onStatusChange, onTimeEstimateChange, onTimeUnitChange, onTimeUntilReady, onHandleHover, onNodeHover, onStatusHover, onConnectorDelete, onClockPopupChange, onRegisterRecalculate, onDimensionChange } = data;
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [editTitleValue, setEditTitleValue] = useState(label);
@@ -49,6 +50,12 @@ function CustomNode({ data, selected, id }: NodeProps<CustomNodeData>) {
   const titleInputRef = useRef<HTMLInputElement>(null);
   const descriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
   const clockPopupRef = useRef<HTMLDivElement>(null);
+  const nodeRef = useRef<HTMLDivElement>(null);
+
+  // Resize state
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeHandle, setResizeHandle] = useState<string | null>(null);
+  const [resizeStart, setResizeStart] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
 
   // Sync local time estimate with props
   useEffect(() => {
@@ -71,8 +78,8 @@ function CustomNode({ data, selected, id }: NodeProps<CustomNodeData>) {
     }
   }, [isEditingDescription]);
 
-  // Handle double-click to enter title edit mode
-  const handleTitleDoubleClick = useCallback((e: React.MouseEvent) => {
+  // Handle click to enter title edit mode
+  const handleTitleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     setIsEditingTitle(true);
     setEditTitleValue(label);
@@ -190,6 +197,67 @@ function CustomNode({ data, selected, id }: NodeProps<CustomNodeData>) {
     onTimeUnitChange?.(nextUnit);
   }, [localTimeUnit, onTimeUnitChange]);
 
+  // Resize handlers
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+
+    if (!nodeRef.current) return;
+
+    const nodeRect = nodeRef.current.getBoundingClientRect();
+    setIsResizing(true);
+    setResizeStart({
+      x: e.clientX,
+      y: e.clientY,
+      width: nodeRect.width,
+      height: nodeRect.height,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isResizing || !resizeStart || !nodeRef.current) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!nodeRef.current || !resizeStart) return;
+
+      const deltaX = e.clientX - resizeStart.x;
+      const deltaY = e.clientY - resizeStart.y;
+
+      const newWidth = Math.max(100, resizeStart.width + deltaX);
+      const newHeight = Math.max(80, resizeStart.height + deltaY);
+
+      // Update the node size visually
+      nodeRef.current.style.width = `${newWidth}px`;
+      nodeRef.current.style.height = `${newHeight}px`;
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (!nodeRef.current || !resizeStart) return;
+
+      const deltaX = e.clientX - resizeStart.x;
+      const deltaY = e.clientY - resizeStart.y;
+
+      const newWidth = Math.max(100, resizeStart.width + deltaX);
+      const newHeight = Math.max(80, resizeStart.height + deltaY);
+
+      // Notify parent of dimension change
+      if (onDimensionChange) {
+        onDimensionChange(id, newWidth, newHeight);
+      }
+
+      setIsResizing(false);
+      setResizeStart(null);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, resizeStart, id, onDimensionChange]);
+
   // Get status configuration (colors, labels, etc.)
   const getStatusConfig = useCallback((status: NodeStatus) => {
     switch (status) {
@@ -294,14 +362,10 @@ function CustomNode({ data, selected, id }: NodeProps<CustomNodeData>) {
 
   return (
     <div
-      className={`bg-white rounded-lg border-2 p-1 shadow-md min-w-[100px] min-h-[80px] transition-all ${
-        selected
-          ? "border-blue-500 shadow-lg"
-          : `${statusConfig.borderColor} hover:shadow-lg`
-      }`}
+      ref={nodeRef}
+      className={`bg-white rounded-lg border-2 p-1 shadow-md min-w-[100px] min-h-[80px] transition-all ${statusConfig.borderColor} hover:shadow-lg`}
       style={{ width: "100%", height: "100%" }}
-      title="Double-click title or click description to edit"
-      onClick={(e) => e.stopPropagation()}
+      title="Click title or description to edit"
       onMouseEnter={() => onNodeHover?.(id)}
       onMouseLeave={() => onNodeHover?.(null)}
     >
@@ -345,7 +409,10 @@ function CustomNode({ data, selected, id }: NodeProps<CustomNodeData>) {
       })}
 
       {/* Node content */}
-      <div className={`flex flex-col h-full ${description ? 'gap-2' : 'items-center justify-center'}`}>
+      <div
+        className={`flex flex-col h-full ${description || isEditingDescription ? 'gap-2' : 'items-center justify-center cursor-text hover:bg-gray-50'}`}
+        onClick={!description && !isEditingDescription && !isEditingTitle ? handleDescriptionClick : undefined}
+      >
         {/* Title */}
         <div className="flex items-center justify-center">
           {isEditingTitle ? (
@@ -362,16 +429,15 @@ function CustomNode({ data, selected, id }: NodeProps<CustomNodeData>) {
           ) : (
             <div
               className="text-sm font-semibold text-gray-800 cursor-text hover:bg-gray-50 px-2 py-1 rounded"
-              onDoubleClick={handleTitleDoubleClick}
-              onClick={!description ? handleDescriptionClick : undefined}
-              title={!description ? "Click to add description or double-click to edit title" : "Double-click to edit title"}
+              onClick={handleTitleClick}
+              title="Click to edit title"
             >
               {label}
             </div>
           )}
         </div>
 
-        {/* Description - show if there's content or editing */}
+        {/* Description - only show when there's content or editing */}
         {(description || isEditingDescription) && (
           <div className="flex-1 flex items-start justify-center overflow-hidden">
             {isEditingDescription ? (
@@ -484,6 +550,21 @@ function CustomNode({ data, selected, id }: NodeProps<CustomNodeData>) {
           )}
         </div>
       </div>
+
+      {/* Resize handle - only show when selected */}
+      {selected && (
+        <div
+          className="nodrag absolute w-3 h-3 cursor-nwse-resize bg-blue-500 border-2 border-white hover:bg-blue-600 transition-colors"
+          style={{
+            bottom: '-6px',
+            right: '-6px',
+            zIndex: 100,
+            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+          }}
+          onMouseDown={handleResizeMouseDown}
+          title="Drag to resize"
+        />
+      )}
     </div>
   );
 }

@@ -182,6 +182,7 @@ function CanvasContent() {
     const updateNodeTimeEstimate = useMutation(api.nodes.updateTimeEstimate);
     const updateNodeTimeUnit = useMutation(api.nodes.updateTimeUnit);
     const updateConnectors = useMutation(api.nodes.updateConnectors);
+    const updateNodeSize = useMutation(api.nodes.updateSize);
 
     // Register custom node types
     const nodeTypes = useMemo(() => ({ custom: CustomNode }), []);
@@ -661,6 +662,21 @@ function CanvasContent() {
         };
     }, [updateNodeTimeUnit, toastError]);
 
+    const createDimensionChangeHandler = useCallback(() => {
+        return async (nodeId: string, width: number, height: number) => {
+            try {
+                await updateNodeSize({
+                    id: nodeId as Id<"nodes">,
+                    width,
+                    height,
+                });
+            } catch (error) {
+                console.error("Failed to update node size:", error);
+                toastError("Failed to update node size");
+            }
+        };
+    }, [updateNodeSize, toastError]);
+
     // Calculate time until ready for a node (critical path calculation)
     // Reads from convexNodesRef/convexEdgesRef to always use current data (no stale closures)
     const calculateTimeUntilReady = useCallback((nodeId: string): number => {
@@ -872,6 +888,7 @@ function CanvasContent() {
                 onConnectorDelete: removeConnectorAndRedistribute,
                 onClockPopupChange: handleClockPopupChange,
                 onRegisterRecalculate: handleRegisterRecalculate,
+                onDimensionChange: createDimensionChangeHandler(),
             },
             style: {
                 width: node.width,
@@ -924,7 +941,7 @@ function CanvasContent() {
         ];
 
         setNodes([...transformedNodes, ...anchorNodes]);
-    }, [convexNodes, setNodes, createLabelChangeHandler, createDescriptionChangeHandler, createStatusChangeHandler, createTimeEstimateChangeHandler, createTimeUnitChangeHandler, createTimeUntilReadyHandler, handleHandleHover, handleNodeHoverForDeletion, handleStatusButtonHover, removeConnectorAndRedistribute, handleClockPopupChange, handleRegisterRecalculate, expandedNodeId]);
+    }, [convexNodes, setNodes, createLabelChangeHandler, createDescriptionChangeHandler, createStatusChangeHandler, createTimeEstimateChangeHandler, createTimeUnitChangeHandler, createTimeUntilReadyHandler, handleHandleHover, handleNodeHoverForDeletion, handleStatusButtonHover, removeConnectorAndRedistribute, handleClockPopupChange, handleRegisterRecalculate, createDimensionChangeHandler, expandedNodeId]);
 
     // Trigger recalculation for all open clock popups when database data changes
     // Uses convexNodes (source of truth) to avoid stale closure lag
@@ -1763,6 +1780,7 @@ function CanvasContent() {
                         onConnectorDelete: removeConnectorAndRedistribute,
                         onClockPopupChange: handleClockPopupChange,
                         onRegisterRecalculate: handleRegisterRecalculate,
+                        onDimensionChange: createDimensionChangeHandler(),
                     },
                     style: {
                         width: nodeWidth,
@@ -1805,7 +1823,7 @@ function CanvasContent() {
             } else {
             }
         },
-        [dragState, connectorPlacement, screenToFlowPosition, getZoom, createNode, handleHandleHover, handleNodeHoverForDeletion, handleStatusButtonHover, removeConnectorAndRedistribute, handleClockPopupChange, handleRegisterRecalculate, setNodes, toastError]
+        [dragState, connectorPlacement, screenToFlowPosition, getZoom, createNode, handleHandleHover, handleNodeHoverForDeletion, handleStatusButtonHover, removeConnectorAndRedistribute, handleClockPopupChange, handleRegisterRecalculate, createDimensionChangeHandler, setNodes, toastError]
     );
 
     // Calculate cursor style based on active tool
