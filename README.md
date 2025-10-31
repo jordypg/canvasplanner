@@ -1,25 +1,12 @@
-# Canvas Planner
-
-Real-time collaborative workflow design tool for visual planning and team coordination.
-
-## Overview
-
-Canvas Planner is a multiplayer canvas application that enables teams to design workflows visually using a node-based interface. Built with modern web technologies, it provides real-time collaboration with live cursor tracking and persistent state management.
-
-## Features
-
-- **Real-time Collaboration** - Multiple users can edit simultaneously with live cursor tracking
-- **Node-Based Design** - Visual workflow creation using draggable nodes and connections
-- **Persistent State** - Automatic saving with Convex real-time database
-- **Responsive UI** - Keyboard shortcuts and intuitive tools for efficient workflow design
-- **WebSocket Communication** - Low-latency updates via Socket.IO
+# Collaborative Canvas Planner
+A multi-user, real-time tool for visual planning. I had tried Figma to plan with others, and wanted to learn more about sync engines, websockets, and multiplayer. Uses a node-based interface, built with react-flow and convex.
 
 ## Tech Stack
 
 - [Next.js 15](https://nextjs.org) - React framework with App Router
 - [TypeScript](https://www.typescriptlang.org) - Type-safe development
 - [ReactFlow](https://reactflow.dev) - Node-based workflow visualization
-- [Convex](https://convex.dev) - Real-time backend and database
+- [Convex](https://convex.dev) - Sync + backend
 - [Socket.IO](https://socket.io) - WebSocket communication
 - [Tailwind CSS](https://tailwindcss.com) - Utility-first styling
 
@@ -101,8 +88,6 @@ Convex automatically generates type-safe client functions from backend definitio
 |-----|------|-------------|
 | `V` | Select | Select and move elements |
 | `N` | Add Node | Create new workflow nodes |
-| `C` | Connect | Connect nodes with edges |
-| `E` | Edit | Edit node properties |
 
 ## Testing
 
@@ -122,15 +107,6 @@ npm run test:coverage
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for production deployment instructions.
 
 **Live Demo:** [https://jordypg.com/canvasplanner](https://jordypg.com/canvasplanner)
-
-## Contributing
-
-Contributions are welcome! Please ensure:
-
-1. All tests pass (`npm test`)
-2. Code follows project conventions (`npm run lint`)
-3. Changes are well-documented
-4. Commits are clear and descriptive
 
 ## License
 
