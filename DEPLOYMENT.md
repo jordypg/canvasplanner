@@ -1,266 +1,204 @@
-# Canvas Planner - EC2 Deployment Guide
+# Deployment Guide
+
+Production deployment guide for Canvas Planner on AWS EC2 with Nginx and PM2.
 
 ## Server Information
 
-**Domain:** https://jordypg.com/canvasplanner
-**EC2 IP:** 18.118.109.247
-**SSH Key:** canvas-app-key.pem (in project root)
-**Server User:** ubuntu
-**App Location:** ~/apps/figma-app
+| Item | Value |
+|------|-------|
+| **Domain** | https://jordypg.com/canvasplanner |
+| **EC2 IP** | 18.118.109.247 |
+| **Server User** | ubuntu |
+| **App Location** | ~/apps/figma-app |
+| **SSH Key** | canvas-app-key.pem |
 
----
-
-## Connecting to the Server
-
-### From Your Local Machine
+## SSH Access
 
 ```bash
-# Navigate to project directory
-cd /Users/jordy/dev/figmaApp
-
-# Connect via SSH
 ssh -i canvas-app-key.pem ubuntu@18.118.109.247
 ```
 
-**Troubleshooting Connection Issues:**
-- If you get "permissions too open" error:
-  ```bash
-  chmod 400 canvas-app-key.pem
-  ```
-- If connection times out, check AWS Security Group allows SSH (port 22) from your IP
+**First-time setup:**
+```bash
+chmod 400 canvas-app-key.pem
+```
 
----
+## Quick Deploy
 
-## Deployment Process (On Remote Server)
-
-### Quick Deployment (Most Common)
-
-After connecting to the server, run these commands:
+Standard deployment workflow after connecting to server:
 
 ```bash
-# Navigate to app directory
 cd ~/apps/figma-app
-
-# Pull latest code from GitHub
 git pull origin master
-
-# Install any new dependencies (if package.json changed)
 npm install
-
-# Rebuild the Next.js application
 npm run build
-
-# Restart the app with PM2
 pm2 restart figma-app
-
-# Check the app is running
-pm2 status
-
-# View logs to verify successful restart
-pm2 logs figma-app --lines 50
+pm2 logs figma-app --lines 20
 ```
 
-### One-Line Deployment Command
-
+**One-line version:**
 ```bash
-cd ~/apps/figma-app && git pull origin master && npm install && npm run build && pm2 restart figma-app && pm2 logs figma-app --lines 20
+cd ~/apps/figma-app && git pull && npm install && npm run build && pm2 restart figma-app
 ```
 
----
+## Process Management (PM2)
 
-## PM2 Process Manager Commands
+### Status & Monitoring
 
-### Check App Status
 ```bash
-pm2 status                    # View all processes
-pm2 logs figma-app           # View live logs (Ctrl+C to exit)
-pm2 logs figma-app --lines 50 # View last 50 log lines
-pm2 monit                    # Real-time monitoring dashboard
+pm2 status                      # View all processes
+pm2 logs figma-app             # Live log stream
+pm2 logs figma-app --lines 50  # Last 50 lines
+pm2 monit                      # Real-time dashboard
 ```
 
-### Restart/Stop/Start App
+### Control Commands
+
 ```bash
-pm2 restart figma-app        # Restart the application
-pm2 stop figma-app          # Stop the application
-pm2 start figma-app         # Start the application
-pm2 reload figma-app        # Reload with zero-downtime
+pm2 restart figma-app          # Restart application
+pm2 stop figma-app            # Stop application
+pm2 start figma-app           # Start application
+pm2 reload figma-app          # Zero-downtime reload
 ```
 
-### View Detailed Info
+## Web Server (Nginx)
+
+### Configuration
+
 ```bash
-pm2 show figma-app          # Show detailed process information
-pm2 env 0                   # Show environment variables
-```
-
----
-
-## Nginx Web Server Commands
-
-### Check Nginx Status
-```bash
-sudo systemctl status nginx     # Check if nginx is running
-sudo nginx -t                   # Test configuration syntax
-```
-
-### Restart/Reload Nginx
-```bash
-sudo systemctl restart nginx    # Full restart
-sudo systemctl reload nginx     # Reload config without downtime
-```
-
-### View Nginx Logs
-```bash
-sudo tail -f /var/log/nginx/access.log   # View access logs
-sudo tail -f /var/log/nginx/error.log    # View error logs
-```
-
-### Edit Nginx Configuration
-```bash
+# Edit configuration
 sudo nano /etc/nginx/sites-available/jordypg.com
-# After editing, test and reload:
-sudo nginx -t && sudo systemctl reload nginx
+
+# Test configuration
+sudo nginx -t
+
+# Reload configuration
+sudo systemctl reload nginx
 ```
 
----
+### Logs
 
-## SSL Certificate Management
-
-### Check Certificate Status
 ```bash
-sudo certbot certificates      # View all certificates
+sudo tail -f /var/log/nginx/access.log    # Access logs
+sudo tail -f /var/log/nginx/error.log     # Error logs
 ```
 
-### Renew Certificate Manually
+### Service Control
+
 ```bash
-sudo certbot renew            # Renew if expiring soon
-sudo certbot renew --dry-run  # Test renewal process
+sudo systemctl status nginx     # Check status
+sudo systemctl restart nginx    # Restart service
+sudo systemctl reload nginx     # Reload config
 ```
 
-### Auto-Renewal Status
+## SSL Certificates
+
+Certificates are managed by Let's Encrypt and auto-renew via certbot.
+
 ```bash
-systemctl status certbot.timer   # Check auto-renewal timer
+sudo certbot certificates              # View certificates
+sudo certbot renew --dry-run          # Test renewal
+systemctl status certbot.timer        # Check auto-renewal status
 ```
-
-**Note:** Certificates auto-renew automatically. No manual intervention needed!
-
----
-
-## System Monitoring
-
-### Check System Resources
-```bash
-htop                   # Interactive process viewer (q to quit)
-df -h                  # Disk space usage
-free -h                # Memory usage
-uptime                 # System uptime and load
-```
-
-### Check Running Services
-```bash
-systemctl status nginx
-systemctl status pm2-ubuntu
-```
-
----
-
-## Troubleshooting
-
-### App Won't Start
-```bash
-# Check PM2 logs for errors
-pm2 logs figma-app --err
-
-# Check if port 3000 is in use
-sudo lsof -i :3000
-
-# Restart PM2
-pm2 restart figma-app
-```
-
-### Website Not Loading
-```bash
-# Check nginx is running
-sudo systemctl status nginx
-
-# Check app is running
-pm2 status
-
-# View nginx error logs
-sudo tail -50 /var/log/nginx/error.log
-```
-
-### After Code Changes Not Appearing
-```bash
-# Make sure you rebuilt
-npm run build
-
-# Hard restart PM2
-pm2 delete figma-app
-cd ~/apps/figma-app
-pm2 start ecosystem.config.js
-
-# Clear browser cache or try incognito mode
-```
-
-### Out of Disk Space
-```bash
-# Check disk usage
-df -h
-
-# Clean PM2 logs
-pm2 flush
-
-# Clean npm cache
-npm cache clean --force
-
-# Remove old build files
-rm -rf .next
-npm run build
-```
-
----
 
 ## Environment Variables
 
-Environment variables are stored in:
+Located at `~/apps/figma-app/.env`:
+
 ```bash
-~/apps/figma-app/.env
+NEXT_PUBLIC_CONVEX_URL=https://your-deployment.convex.cloud
+NODE_ENV=production
+PORT=3000
 ```
 
-To edit:
+**Update variables:**
 ```bash
-cd ~/apps/figma-app
-nano .env
-# After editing, restart app:
+nano ~/apps/figma-app/.env
 pm2 restart figma-app
 ```
 
-**Current variables:**
-- `NEXT_PUBLIC_CONVEX_URL` - Convex backend URL
-- `NODE_ENV` - Set to "production"
-- `PORT` - App port (3000)
+## System Monitoring
 
----
+```bash
+htop                 # Process viewer
+df -h                # Disk usage
+free -h              # Memory usage
+uptime               # System load
+```
+
+## Troubleshooting
+
+### Application Not Starting
+
+```bash
+# Check PM2 logs
+pm2 logs figma-app --err
+
+# Verify port availability
+sudo lsof -i :3000
+
+# Hard restart
+pm2 delete figma-app
+cd ~/apps/figma-app
+pm2 start ecosystem.config.js
+```
+
+### Website Not Loading
+
+```bash
+# Verify services
+sudo systemctl status nginx
+pm2 status
+
+# Check nginx errors
+sudo tail -50 /var/log/nginx/error.log
+```
+
+### Changes Not Appearing
+
+```bash
+# Ensure clean build
+npm run build
+pm2 restart figma-app
+
+# Clear client cache
+# Use browser incognito mode
+```
+
+### Disk Space Issues
+
+```bash
+df -h                          # Check usage
+pm2 flush                      # Clear PM2 logs
+npm cache clean --force        # Clear npm cache
+rm -rf .next && npm run build  # Rebuild
+```
 
 ## Git Operations
 
-### View Current Branch/Status
+### Branch Management
+
 ```bash
 cd ~/apps/figma-app
 git status
 git log --oneline -10
-```
-
-### Switch Branches (if needed)
-```bash
 git fetch origin
 git checkout branch-name
+```
+
+### Rollback
+
+```bash
+cd ~/apps/figma-app
+git log --oneline -10
+git checkout <commit-hash>
 npm install
 npm run build
 pm2 restart figma-app
 ```
 
-### Discard Local Changes
+### Reset to Remote
+
 ```bash
 git reset --hard origin/master
 npm install
@@ -268,101 +206,53 @@ npm run build
 pm2 restart figma-app
 ```
 
----
+## Backup
 
-## Backup and Rollback
-
-### Create Manual Backup
 ```bash
 cd ~
 tar -czf figma-app-backup-$(date +%Y%m%d).tar.gz apps/figma-app/
 ```
 
-### Rollback to Previous Commit
-```bash
-cd ~/apps/figma-app
-git log --oneline -10              # Find commit hash
-git checkout <commit-hash>
-npm install
-npm run build
-pm2 restart figma-app
-```
+## Adding Additional Applications
 
----
+To deploy another app on the same server:
 
-## Adding Another App to the Same Server
-
-1. **Deploy new app on different port (e.g., 3001)**
+1. **Deploy app on different port** (e.g., 3001)
 
 2. **Update Nginx configuration:**
 ```bash
 sudo nano /etc/nginx/sites-available/jordypg.com
 ```
 
-Add new location block:
+Add location block:
 ```nginx
-location /anotherapp {
+location /otherapp {
     proxy_pass http://localhost:3001;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
     proxy_set_header Host $host;
-    proxy_cache_bypass $http_upgrade;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
 }
 ```
 
-3. **Test and reload:**
+3. **Apply changes:**
 ```bash
-sudo nginx -t
-sudo systemctl reload nginx
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
----
+## Auto-Start Configuration
 
-## Emergency Contacts & Resources
+Both PM2 and Nginx are configured to auto-start on server reboot via systemd. No manual intervention required after system restarts.
 
-**Server Restart (if completely frozen):**
-- Go to AWS Console → EC2 → Instances
-- Select instance → Instance State → Reboot
+## Resources
 
-**After server reboot:**
-- PM2 auto-starts (configured via systemd)
-- Nginx auto-starts (configured via systemd)
-- No manual intervention needed
-
-**Useful Resources:**
-- PM2 Docs: https://pm2.keymetrics.io/docs/usage/quick-start/
-- Nginx Docs: https://nginx.org/en/docs/
-- Let's Encrypt: https://letsencrypt.org/docs/
-- Next.js Deployment: https://nextjs.org/docs/deployment
+- [PM2 Documentation](https://pm2.keymetrics.io/docs/usage/quick-start/)
+- [Nginx Documentation](https://nginx.org/en/docs/)
+- [Let's Encrypt Documentation](https://letsencrypt.org/docs/)
+- [Next.js Deployment](https://nextjs.org/docs/deployment)
 
 ---
 
-## Quick Reference Card
-
-```bash
-# Connect to server
-ssh -i canvas-app-key.pem ubuntu@18.118.109.247
-
-# Deploy updates
-cd ~/apps/figma-app && git pull && npm install && npm run build && pm2 restart figma-app
-
-# Check status
-pm2 status
-pm2 logs figma-app
-
-# View website
-https://jordypg.com/canvasplanner
-
-# Emergency restart
-pm2 restart figma-app
-sudo systemctl restart nginx
-```
-
----
-
-**Last Updated:** October 22, 2025
-**Deployed By:** Claude Code & Jordy
+**Production URL:** https://jordypg.com/canvasplanner
